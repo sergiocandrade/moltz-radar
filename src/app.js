@@ -280,23 +280,13 @@ function carteiraHealth(){const rec=POLICIES.reduce((s,p)=>s+p.premio*p.comissao
   const g={};POLICIES.forEach(p=>g[p.ins]=(g[p.ins]||0)+p.premio*p.comissao);const top=Object.entries(g).sort((a,b)=>b[1]-a[1])[0];
   return{rec,risk,top:top[0],topShare:top[1]/rec*100};}
 const customerPage={items:[],total:0,page:1,page_size:15,loading:false,error:''};
-const renewalGrid={items:[],total:0,page:1,page_size:15,counts:{venc:0,'30':0,'60':0,'120':0},customerNames:new Map(),customerNamesLoading:false,loading:false,error:''};
+const renewalGrid={items:[],total:0,page:1,page_size:15,counts:{venc:0,'30':0,'60':0,'120':0},loading:false,error:''};
 let renewalRequest=0;
 const renewalWindows={venc:[null,-1],'30':[0,30],'60':[31,60],'120':[61,120]};
 const isoDay=offset=>{const d=new Date(TODAY.getTime()+offset*DAY);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
 function renewalWindowParams(key){const[from,to]=renewalWindows[key];return from===null?{end_date_to:isoDay(to)}:{end_date_from:isoDay(from),end_date_to:isoDay(to)}}
 function validPage(data){return data&&Array.isArray(data.items)&&Number.isInteger(data.total)&&data.total>=0&&Number.isInteger(data.page)&&data.page>=1&&Number.isInteger(data.page_size)&&data.page_size>=1}
-async function loadPolicyCustomerNames(ids){
-  const wanted=new Set(ids),names=new Map();let page=1,totalPages=1;
-  while(page<=totalPages&&names.size<wanted.size){
-    const query=new URLSearchParams({view:'summary',page:String(page),page_size:'100'});
-    const data=await apiRequest('/customers?'+query);
-    if(!validPage(data))throw new Error('A API retornou uma lista de clientes inválida.');
-    data.items.forEach(customer=>{if(customer&&wanted.has(customer.id)&&typeof customer.name==='string')names.set(customer.id,customer.name)});
-    totalPages=Math.ceil(data.total/data.page_size);page++;
-  }
-  return names;
-}
+const policyCustomerName=policy=>policy.customer?.name||'Cliente';
 async function loadRenewalPolicies(){
   if(S.view!=='renovacoes'||S.renMode!=='todas')return;
   const request=++renewalRequest,selected=S.ren;
@@ -309,7 +299,7 @@ async function loadRenewalPolicies(){
       throw new Error('A API retornou dados de apólice inválidos.');
     }
     if(request!==renewalRequest)return;
-    Object.assign(renewalGrid,{items:selectedData.items,total:selectedData.total,page:selectedData.page,page_size:selectedData.page_size,counts:{...renewalGrid.counts,[selected]:selectedData.total},customerNames:new Map(),customerNamesLoading:true,loading:false});
+    Object.assign(renewalGrid,{items:selectedData.items,total:selectedData.total,page:selectedData.page,page_size:selectedData.page_size,counts:{...renewalGrid.counts,[selected]:selectedData.total},loading:false});
     render();
     const otherKeys=Object.keys(renewalWindows).filter(key=>key!==selected);
     const countsPromise=Promise.allSettled(otherKeys.map(async key=>{
@@ -318,16 +308,12 @@ async function loadRenewalPolicies(){
       if(!validPage(data))throw new Error('A API retornou uma lista de apólices inválida.');
       return[key,data.total];
     }));
-    const[names,countResults]=await Promise.all([
-      loadPolicyCustomerNames(selectedData.items.map(policy=>policy.customer_id)).catch(()=>new Map()),
-      countsPromise,
-    ]);
+    const countResults=await countsPromise;
     if(request!==renewalRequest)return;
-    renewalGrid.customerNames=names;renewalGrid.customerNamesLoading=false;
     countResults.forEach(result=>{if(result.status==='fulfilled')renewalGrid.counts[result.value[0]]=result.value[1]});
     render();
   }catch(error){
-    if(request===renewalRequest){renewalGrid.items=[];renewalGrid.total=0;renewalGrid.loading=false;renewalGrid.customerNamesLoading=false;renewalGrid.error=error.message;render();}
+    if(request===renewalRequest){renewalGrid.items=[];renewalGrid.total=0;renewalGrid.loading=false;renewalGrid.error=error.message;render();}
   }
 }
 async function loadCustomers(page=1){
@@ -409,7 +395,7 @@ V.renovacoes=()=>{
   const actionCount=renewalGrid.counts.venc+renewalGrid.counts['30'];
   const rows=renewalGrid.items.map(policy=>{
     const endDate=new Date(`${policy.end_date}T00:00:00`),offset=Math.round((endDate-TODAY)/DAY);
-    const customer=renewalGrid.customerNames.get(policy.customer_id)||(renewalGrid.customerNamesLoading?'Carregando cliente...':'Cliente');
+    const customer=policyCustomerName(policy);
     const product=policy.insurance_product?.insurance_branch?.name||policy.insurance_product?.name||'Apólice';
     const insurer=policy.insurer?.name;
     const amount=Number(policy.amount),subtitle=`${product}${insurer?` · ${insurer}`:''}`;
@@ -661,7 +647,7 @@ function policyModal(id){
 }
 function apiPolicyModal(id){
   const policy=renewalGrid.items.find(item=>item.id===id);if(!policy)return;
-  const customer=renewalGrid.customerNames.get(policy.customer_id)||policy.customer_id;
+  const customer=policyCustomerName(policy);
   const product=policy.insurance_product?.name||policy.insurance_product?.insurance_branch?.name||'Apólice';
   const amount=Number(policy.amount),formatDate=value=>typeof value==='string'&&!Number.isNaN(Date.parse(value))?fdateY(new Date(`${value.slice(0,10)}T00:00:00`)):'—';
   openModal(`${mHead(esc(customer),esc(product))}<div class="m-body"><dl class="dl"><div><dt>Seguradora</dt><b>${esc(policy.insurer?.name||'—')}</b></div><div><dt>Prêmio</dt><b>${Number.isFinite(amount)?brl2(amount):'—'}</b></div><div><dt>Número da apólice</dt><b>${esc(policy.policy_number||'—')}</b></div><div><dt>Status</dt><b>${esc(policy.status||'—')}</b></div><div><dt>Início</dt><b>${formatDate(policy.start_date)}</b></div><div><dt>Vencimento</dt><b>${formatDate(policy.end_date)}</b></div></dl></div><div class="m-foot"><button class="btn quiet" data-act="close">Fechar</button></div>`);

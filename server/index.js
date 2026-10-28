@@ -18,7 +18,7 @@ async function proxyApi(req, res) {
     const response = await fetch(`${AUTH_API_URL}${req.originalUrl.slice('/api'.length)}`, {
       method: req.method,
       headers: {
-       r'application/json',
+       'Content-Type': 'application/json',
         ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
       },
       ...(req.method === 'POST' ? { body: JSON.stringify(req.body) } : {}),

@@ -376,7 +376,7 @@ V.carteira=()=>{
     <td class="hide-m">${esc(insurers(customer))||'—'}</td>
     <td class="hide-m">${Number.isNaN(Date.parse(customer.created_at))?'—':fdateY(new Date(customer.created_at))}</td>
   </tr>`).join('');
-  if(customerPage.loading)rows='<tr><td colspan="7" class="empty" role="status">Carregando clientes...</td></tr>';
+  if(customerPage.loading)rows='<tr><td colspan="7" class="empty" role="status"><span class="grid-loading"><span class="spinner" aria-hidden="true"></span>Carregando clientes...</span></td></tr>';
   else if(customerPage.error)rows=`<tr><td colspan="7" class="empty"><p role="alert">${esc(customerPage.error)}</p><button class="link" data-act="customers-retry">Tentar novamente</button> · <button class="link" data-act="logout">Entrar novamente</button></td></tr>`;
   else if(!rows)rows=`<tr><td colspan="7" class="empty">${query?'Nenhum cliente encontrado nesta página.':'Nenhum cliente cadastrado.'}</td></tr>`;
   return`${head('Carteira',plural(customerPage.total,'cliente','clientes'))}
@@ -415,7 +415,7 @@ V.renovacoes=()=>{
     const amount=Number(policy.amount),subtitle=`${product}${insurer?` · ${insurer}`:''}`;
     return`<tr class="cl" data-act="api-policy" data-id="${esc(policy.id)}"><td><span class="cname"><b>${esc(customer)}</b><span>${esc(subtitle)}</span></span></td><td class="hide-m">${Number.isFinite(amount)?brl2(amount):'—'}</td><td>${fdate(endDate)} <span class="sm hide-m ${offset<0?'down':'t3'}">· ${offset<0?'há '+plural(-offset,'dia','dias'):'em '+plural(offset,'dia','dias')}</span></td></tr>`;
   }).join('');
-  const tableRows=renewalGrid.loading?'<tr><td colspan="3" class="empty" role="status">Carregando apólices...</td></tr>':renewalGrid.error?`<tr><td colspan="3" class="empty"><p role="alert">${esc(renewalGrid.error)}</p><button class="link" data-act="policies-retry">Tentar novamente</button></td></tr>`:rows||'<tr><td colspan="3" class="empty">Nenhuma apólice neste período.</td></tr>';
+  const tableRows=renewalGrid.loading?'<tr><td colspan="3" class="empty" role="status"><span class="grid-loading"><span class="spinner" aria-hidden="true"></span>Carregando apólices...</span></td></tr>':renewalGrid.error?`<tr><td colspan="3" class="empty"><p role="alert">${esc(renewalGrid.error)}</p><button class="link" data-act="policies-retry">Tentar novamente</button></td></tr>`:rows||'<tr><td colspan="3" class="empty">Nenhuma apólice neste período.</td></tr>';
   return`${head('Renovações','A negociação começa 120 dias antes do vencimento. Abra uma apólice para preparar a renovação.')}
   <div class="section"><div class="hero"><div><div class="big">${actionCount}</div><p class="lbl">Apólices vencidas ou com vencimento nos próximos 30 dias</p></div></div></div>
   <div class="section">

@@ -157,6 +157,9 @@ button.row:hover,.row.click:hover{background:var(--hover);cursor:pointer}
 .dot.red{background:var(--red)}.dot.amber{background:var(--amber)}.dot.green{background:var(--green)}.dot.blue{background:var(--blue)}
 .status{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;color:var(--text-2);white-space:nowrap}
 .empty{padding:40px 20px;text-align:center;color:var(--text-2)}
+.grid-loading{display:inline-flex;align-items:center;justify-content:center;gap:10px}
+.spinner{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .prop{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;white-space:nowrap}
 .prop .bars{display:inline-flex;gap:2px;align-items:flex-end}
 .prop .bars i{width:4px;border-radius:2px;background:var(--line);display:block}

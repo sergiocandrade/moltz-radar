@@ -156,7 +156,7 @@ const RET=0.05;
 
 /* ---------- estado ---------- */
 const S={view:'inicio',done:store.get('done',{}),events:store.get('events',{}),acts:store.get('acts',{contatos:0,conv:0,salvas:0,trilhas:0}),
-  ren:'30',renF:null,renMode:'todas',renPage:1,comTab:'extrato',comMonth:-1,meta:75,vcmh:13,trainIns:'SulAmérica',chat:[],
+  ren:'30',renMode:'todas',renPage:1,comTab:'extrato',comMonth:-1,meta:75,vcmh:13,trainIns:'SulAmérica',chat:[],
   cf:{tipo:[],ramo:[],ins:[],venc:[],cont:[],prod:[],rec:[],cid:[],sinal:[]},popG:null,cols:store.get('cols',null)||['produtos','acao','venc','contato'],sel:{},review:store.get('review',{}),cad:store.get('cad',{}),desTab:'indicadores',cq:'',cRamo:'Todos',cIns:'Todas',cProd:'todos',cSort:'receita',cDir:-1,cPage:1,cOpen:{}};
 const saveActs=()=>store.set('acts',S.acts);
 
@@ -280,6 +280,56 @@ function carteiraHealth(){const rec=POLICIES.reduce((s,p)=>s+p.premio*p.comissao
   const g={};POLICIES.forEach(p=>g[p.ins]=(g[p.ins]||0)+p.premio*p.comissao);const top=Object.entries(g).sort((a,b)=>b[1]-a[1])[0];
   return{rec,risk,top:top[0],topShare:top[1]/rec*100};}
 const customerPage={items:[],total:0,page:1,page_size:15,loading:false,error:''};
+const renewalGrid={items:[],total:0,page:1,page_size:15,counts:{venc:0,'30':0,'60':0,'120':0},customerNames:new Map(),loading:false,error:''};
+let renewalRequest=0;
+const renewalWindows={venc:[null,-1],'30':[0,30],'60':[31,60],'120':[61,120]};
+const isoDay=offset=>{const d=new Date(TODAY.getTime()+offset*DAY);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
+function renewalWindowParams(key){const[from,to]=renewalWindows[key];return from===null?{end_date_to:isoDay(to)}:{end_date_from:isoDay(from),end_date_to:isoDay(to)}}
+function validPage(data){return data&&Array.isArray(data.items)&&Number.isInteger(data.total)&&data.total>=0&&Number.isInteger(data.page)&&data.page>=1&&Number.isInteger(data.page_size)&&data.page_size>=1}
+async function loadPolicyCustomerNames(ids){
+  const wanted=new Set(ids),names=new Map();let page=1,totalPages=1;
+  while(page<=totalPages&&names.size<wanted.size){
+    const query=new URLSearchParams({view:'summary',page:String(page),page_size:'100'});
+    const data=await apiRequest('/customers?'+query);
+    if(!validPage(data))throw new Error('A API retornou uma lista de clientes inválida.');
+    data.items.forEach(customer=>{if(customer&&wanted.has(customer.id)&&typeof customer.name==='string')names.set(customer.id,customer.name)});
+    totalPages=Math.ceil(data.total/data.page_size);page++;
+  }
+  return names;
+}
+async function loadRenewalPolicies(){
+  if(S.view!=='renovacoes'||S.renMode!=='todas')return;
+  const request=++renewalRequest,selected=S.ren;
+  renewalGrid.loading=true;renewalGrid.error='';render();
+  try{
+    const query=new URLSearchParams({...renewalWindowParams(selected),page:String(S.renPage),page_size:'15'});
+    const selectedData=await apiRequest('/policies?'+query);
+    if(!validPage(selectedData))throw new Error('A API retornou uma lista de apólices inválida.');
+    if(selectedData.items.some(policy=>!policy||typeof policy.id!=='string'||typeof policy.customer_id!=='string'||typeof policy.amount!=='string'||typeof policy.end_date!=='string'||Number.isNaN(Date.parse(policy.end_date)))){
+      throw new Error('A API retornou dados de apólice inválidos.');
+    }
+    if(request!==renewalRequest)return;
+    Object.assign(renewalGrid,{items:selectedData.items,total:selectedData.total,page:selectedData.page,page_size:selectedData.page_size,counts:{...renewalGrid.counts,[selected]:selectedData.total},customerNames:new Map(),loading:false});
+    render();
+    const otherKeys=Object.keys(renewalWindows).filter(key=>key!==selected);
+    const countsPromise=Promise.allSettled(otherKeys.map(async key=>{
+      const countQuery=new URLSearchParams({...renewalWindowParams(key),page:'1',page_size:'1'});
+      const data=await apiRequest('/policies?'+countQuery);
+      if(!validPage(data))throw new Error('A API retornou uma lista de apólices inválida.');
+      return[key,data.total];
+    }));
+    const[names,countResults]=await Promise.all([
+      loadPolicyCustomerNames(selectedData.items.map(policy=>policy.customer_id)).catch(()=>new Map()),
+      countsPromise,
+    ]);
+    if(request!==renewalRequest)return;
+    renewalGrid.customerNames=names;
+    countResults.forEach(result=>{if(result.status==='fulfilled')renewalGrid.counts[result.value[0]]=result.value[1]});
+    render();
+  }catch(error){
+    if(request===renewalRequest){renewalGrid.items=[];renewalGrid.total=0;renewalGrid.loading=false;renewalGrid.error=error.message;render();}
+  }
+}
 async function loadCustomers(page=1){
   if(customerPage.loading)return;
   customerPage.loading=true;customerPage.error='';S.cq='';
@@ -355,30 +405,22 @@ function colsModal(){openModal(`${mHead('Colunas da tabela','Cliente e receita f
   <div class="m-foot"><button class="btn quiet" data-act="colreset">Restaurar padrão</button><button class="btn solid" data-act="close">Pronto</button></div>`);}
 
 V.renovacoes=()=>{
-  const open=POLICIES.filter(p=>p.status!=='Renovada');
-  const W={venc:[-999,-1],'30':[0,30],'60':[31,60],'120':[61,120]};
-  const inW=k=>open.filter(p=>{const d=days(p.fim);return d>=W[k][0]&&d<=W[k][1]});
-  const acao=inW('venc').length+inW('30').filter(p=>p.status==='Não iniciada').length;
-  const modeSeg=seg([['todas','Todas as apólices'],['saude','Saúde coletiva']],S.renMode,'renmode');
-  if(S.renMode==='saude')return`${head('Renovações','Saúde coletiva tem regras próprias: negociação por sinistralidade a partir de 30 vidas e pool de risco abaixo disso.',modeSeg)}${renSaude()}`;
-  if(!W[S.ren])S.ren='30';
-  let list=inW(S.ren);
-  if(S.renF==='alto')list=list.filter(p=>p.risk>=70);
-  if(S.renF==='caro')list=list.filter(p=>p.reajPrev>15);
-  list=[...list].sort((a,b)=>a.fim-b.fim);
-  const size=15,pages=Math.max(1,Math.ceil(list.length/size));if(S.renPage>pages)S.renPage=pages;
-  const pageItems=list.slice((S.renPage-1)*size,S.renPage*size);
-  return`${head('Renovações','A negociação começa 120 dias antes do vencimento. Abra uma apólice para preparar a renovação.',modeSeg)}
-  <div class="section"><div class="hero"><div><div class="big">${acao}</div><p class="lbl">${acao===1?'renovação precisa':'renovações precisam'} de ação agora · vencidas ou a menos de 30 dias sem início</p></div></div></div>
+  if(S.renMode==='saude')return`${head('Renovações','Saúde coletiva tem regras próprias: negociação por sinistralidade a partir de 30 vidas e pool de risco abaixo disso.')}${renSaude()}`;
+  const actionCount=renewalGrid.counts.venc+renewalGrid.counts['30'];
+  const rows=renewalGrid.items.map(policy=>{
+    const endDate=new Date(`${policy.end_date}T00:00:00`),offset=Math.round((endDate-TODAY)/DAY);
+    const customer=renewalGrid.customerNames.get(policy.customer_id)||policy.customer_id;
+    const product=policy.insurance_product?.insurance_branch?.name||policy.insurance_product?.name||'Apólice';
+    const insurer=policy.insurer?.name;
+    const amount=Number(policy.amount),subtitle=`${product}${insurer?` · ${insurer}`:''}`;
+    return`<tr class="cl" data-act="api-policy" data-id="${esc(policy.id)}"><td><span class="cname"><b>${esc(customer)}</b><span>${esc(subtitle)}</span></span></td><td class="hide-m">${Number.isFinite(amount)?brl2(amount):'—'}</td><td>${fdate(endDate)} <span class="sm hide-m ${offset<0?'down':'t3'}">· ${offset<0?'há '+plural(-offset,'dia','dias'):'em '+plural(offset,'dia','dias')}</span></td></tr>`;
+  }).join('');
+  const tableRows=renewalGrid.loading?'<tr><td colspan="3" class="empty" role="status">Carregando apólices...</td></tr>':renewalGrid.error?`<tr><td colspan="3" class="empty"><p role="alert">${esc(renewalGrid.error)}</p><button class="link" data-act="policies-retry">Tentar novamente</button></td></tr>`:rows||'<tr><td colspan="3" class="empty">Nenhuma apólice neste período.</td></tr>';
+  return`${head('Renovações','A negociação começa 120 dias antes do vencimento. Abra uma apólice para preparar a renovação.')}
+  <div class="section"><div class="hero"><div><div class="big">${actionCount}</div><p class="lbl">Apólices vencidas ou com vencimento nos próximos 30 dias</p></div></div></div>
   <div class="section">
-    <div class="filters">${seg([['venc','Vencidas',inW('venc').length],['30','Até 30 dias',inW('30').length],['60','31 a 60',inW('60').length],['120','61 a 120',inW('120').length]],S.ren,'ren')}
-      <button class="chip sm ${S.renF==='alto'?'on':''}" data-act="renf" data-v="alto">Risco alto</button><button class="chip sm ${S.renF==='caro'?'on':''}" data-act="renf" data-v="caro">Reajuste acima de 15%</button></div>
-    <div class="tbl"><div class="tbl-scroll"><table><thead><tr><th>Cliente</th><th class="hide-m">Prêmio atual</th><th>Vencimento</th><th class="r">Reajuste</th><th class="hide-m">Risco</th><th class="hide-m"></th></tr></thead><tbody>
-    ${pageItems.map(p=>{const[w,c]=riskWord(p.risk),d=days(p.fim);return`<tr class="cl" data-act="pol" data-id="${p.id}"><td><span class="cname"><b><span class="dot ${c} show-m" style="margin-right:6px;vertical-align:1px"></span>${esc(p.cli.nome)}</b><span>${p.ramo} · ${p.ins}</span></span></td><td class="hide-m">${brl(p.premio)}<span class="t3">/ano</span></td>
-      <td>${fdate(p.fim)} <span class="sm hide-m ${d<0?'down':'t3'}">· ${d<0?'há '+plural(-d,'dia','dias'):'em '+plural(d,'dia','dias')}</span></td>
-      <td class="r num"><span class="${p.reajPrev>15?'down':''}">${p.reajPrev>0?'+':''}${pct(p.reajPrev,0)}</span></td>
-      <td class="hide-m"><span class="status" title="Risco ${w.toLowerCase()}"><span class="dot ${c}"></span><span class="hide-m">${w}</span></span></td><td class="r hide-m"><span class="acts">${waBtn(p.cli,{p},true)}</span></td></tr>`}).join('')||'<tr><td colspan="6" class="empty">Nenhuma renovação neste filtro.</td></tr>'}
-    </tbody></table></div>${pager(list.length,S.renPage,size,'renpage')}</div>
+    <div class="filters">${seg([['venc','Vencidas',renewalGrid.counts.venc],['30','Até 30 dias',renewalGrid.counts['30']],['60','31 a 60',renewalGrid.counts['60']],['120','61 a 120',renewalGrid.counts['120']]],S.ren,'ren')}</div>
+    <div class="tbl" aria-busy="${renewalGrid.loading}"><div class="tbl-scroll"><table><thead><tr><th>Cliente</th><th class="hide-m">Prêmio atual</th><th>Vencimento</th></tr></thead><tbody>${tableRows}</tbody></table></div>${pager(renewalGrid.total,renewalGrid.page,renewalGrid.page_size,'renpage')}</div>
     <p class="t3 xs">Risco de perda combina reajuste, sinistralidade, tempo sem contato, monoproduto e tempo de casa. <button class="link xs" data-act="howrisk">Como calculamos</button></p>
   </div>`;
 };
@@ -423,7 +465,6 @@ V.avisos=()=>{
     ${it('green',`${oppH} vendas com propensão alta`,compact(RULES.reduce((s,r)=>s+r.total,0))+' em prêmio anual possível','data-go="oportunidades"')}
   </div>`;
 };
-
 /* treinamento */
 const MAT=['Manual de vendas','Tabela de preços','Regras de aceitação','Guia de sinistro','Condições gerais'];
 const COURSES=[{t:'Renovação antecipada: o roteiro dos 120 dias',a:6,d:6},{t:'Objeção de preço no reajuste de saúde',a:4,d:2},{t:'Venda consultiva de vida para famílias',a:5,d:1},{t:'Sinistralidade e pool de risco sem mistério',a:3,d:0},{t:'Cross-sell a partir da apólice de auto',a:4,d:0}];
@@ -618,6 +659,13 @@ function policyModal(id){
   </div>
   <div class="m-foot">${demoNote}<button class="btn" data-act="cli" data-id="${c.id}">Ver cliente</button><button class="btn solid" data-act="renew" data-id="${p.id}">Marcar como renovada</button></div>`);
 }
+function apiPolicyModal(id){
+  const policy=renewalGrid.items.find(item=>item.id===id);if(!policy)return;
+  const customer=renewalGrid.customerNames.get(policy.customer_id)||policy.customer_id;
+  const product=policy.insurance_product?.name||policy.insurance_product?.insurance_branch?.name||'Apólice';
+  const amount=Number(policy.amount),formatDate=value=>typeof value==='string'&&!Number.isNaN(Date.parse(value))?fdateY(new Date(`${value.slice(0,10)}T00:00:00`)):'—';
+  openModal(`${mHead(esc(customer),esc(product))}<div class="m-body"><dl class="dl"><div><dt>Seguradora</dt><b>${esc(policy.insurer?.name||'—')}</b></div><div><dt>Prêmio</dt><b>${Number.isFinite(amount)?brl2(amount):'—'}</b></div><div><dt>Número da apólice</dt><b>${esc(policy.policy_number||'—')}</b></div><div><dt>Status</dt><b>${esc(policy.status||'—')}</b></div><div><dt>Início</dt><b>${formatDate(policy.start_date)}</b></div><div><dt>Vencimento</dt><b>${formatDate(policy.end_date)}</b></div></dl></div><div class="m-foot"><button class="btn quiet" data-act="close">Fechar</button></div>`);
+}
 function ruleModal(id){const r=RULES.find(x=>x.id===id);
   openModal(`${mHead(esc(r.prod),`${esc(r.who)} · ${plural(r.items.length,'cliente','clientes')} · ${compact(r.total)} por ano`)}
   <div class="m-body"><div class="note"><b>Por que funciona.</b> ${esc(r.why)}<br><span class="t3 sm">Origem do dado: ${esc(r.src)} · ordenado por propensão de compra</span></div>
@@ -754,7 +802,7 @@ function renderChrome(){const v=imp();
   $('#tabbar').innerHTML=tb.map(([k,l])=>`<a href="#${k}" data-go="${k}" class="${S.view===k?'on':''}">${ico(k)}${l}</a>`).join('')+`<button data-act="menu" class="${!tb.some(t=>t[0]===S.view)?'on':''}">${ico('mais')}Mais</button>`;
 }
 function render(){renderChrome();$('#page').innerHTML=V[S.view]();renderBulk();}
-function go(v){if(!V[v])v='inicio';S.view=v;closePop();$('#menu').hidden=true;try{history.replaceState(null,'','#'+v)}catch(e){}render();if(v==='carteira')loadCustomers();window.scrollTo({top:0});}
+function go(v){if(!V[v])v='inicio';S.view=v;closePop();$('#menu').hidden=true;try{history.replaceState(null,'','#'+v)}catch(e){}render();if(v==='carteira')loadCustomers();if(v==='renovacoes')loadRenewalPolicies();window.scrollTo({top:0});}
 let tt;function toast(h){const t=$('#toast');t.innerHTML=h;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2600);}
 function bump(k,msg){const b=imp();S.acts[k]++;saveActs();renderChrome();const d=imp()-b;toast(`${msg}${d>0?` · <b>+${d} no índice</b>`:''}`);}
 
@@ -762,17 +810,19 @@ function bump(k,msg){const b=imp();S.acts[k]++;saveActs();renderChrome();const d
 document.addEventListener('click',e=>{
   if(S.popG&&!e.target.closest('#pop')&&!e.target.closest('.fpill'))closePop();
   if(!e.target.closest('.more')&&!e.target.closest('#tabbar'))$('#menu').hidden=true;
-  const g=e.target.closest('[data-go]');if(g){e.preventDefault();closeModal();closeCmd();go(g.dataset.go);return;}
+  const g=e.target.closest('[data-go]');if(g){e.preventDefault();closeModal();closeCmd();if(g.dataset.go==='renovacoes')S.renMode='todas';go(g.dataset.go);return;}
   const el=e.target.closest('[data-act]');if(!el)return;const a=el.dataset.act,v=el.dataset.v;
   switch(a){
     case 'customer-details':if(!e.target.closest('a')){el.focus();customerModal(el.dataset.id);}break;
     case 'customer-tab':customerModal(el.dataset.id,v);break;
     case 'wa':{e.stopPropagation();const c=byId(el.dataset.id);if(c.ultContato>90)S.acts.contatos++;c.ultContato=0;saveActs();renderChrome();return;}
     case 'cli':closeCmd();clientModal(el.dataset.id,el.dataset.tab||'resumo');break;
-    case 'go':closeCmd();closeModal();go(v);break;
+    case 'go':closeCmd();closeModal();if(v==='renovacoes')S.renMode='todas';go(v);break;
     case 'close':closeModal();if(S.view==='renovacoes')render();break;
     case 'mtab':clientModal(el.dataset.id,v);break;
     case 'pol':policyModal(el.dataset.id);break;
+    case 'api-policy':apiPolicyModal(el.dataset.id);break;
+    case 'policies-retry':loadRenewalPolicies();break;
     case 'rule':ruleModal(v);break;
     case 'extrato':extratoModal(v);break;
     case 'div':divModal(el.dataset.id,el.dataset.m);break;
@@ -789,9 +839,8 @@ document.addEventListener('click',e=>{
     case 'csort':if(S.cSort===v)S.cDir*=-1;else{S.cSort=v;S.cDir=(v==='nome'||v==='prox')?1:-1;}S.cPage=1;render();break;
     case 'cpage':loadCustomers(+v);break;
     case 'customers-retry':loadCustomers(customerPage.page);break;
-    case 'renpage':S.renPage=+v;render();break;
-    case 'ren':S.ren=v;S.renPage=1;render();break;
-    case 'renf':S.renF=(v&&S.renF!==v)?v:null;S.renPage=1;render();break;
+    case 'renpage':S.renPage=+v;render();loadRenewalPolicies();break;
+    case 'ren':S.ren=v;S.renPage=1;render();loadRenewalPolicies();break;
     case 'cprod':S.cProd=v;S.cPage=1;render();break;
     case 'fset':S.cf=emptyCF();S.cf[el.dataset.g]=[v];S.cPage=1;closePop();render();break;
     case 'fpop':e.stopPropagation();if(S.popG===el.dataset.g)closePop();else openPop(el.dataset.g);break;
@@ -817,9 +866,8 @@ document.addEventListener('click',e=>{
     case 'capply':S.cRamo=$('#fRamo').value;S.cIns=$('#fIns').value;S.cProd=$('#fProd').value;S.cPage=1;closeModal();render();break;
     case 'cclear':S.cf=emptyCF();S.cq='';S.cPage=1;closePop();closeModal();render();break;
     case 'destab':S.desTab=v;render();break;
-    case 'goren':S.renMode='todas';S.ren='venc';S.renF=null;go('renovacoes');break;
-    case 'gocaro':S.renMode='todas';S.ren='120';S.renF='caro';go('renovacoes');break;
-    case 'renmode':S.renMode=v;render();break;
+    case 'goren':S.renMode='todas';S.ren='venc';go('renovacoes');break;
+    case 'gocaro':S.renMode='todas';S.ren='120';go('renovacoes');break;
     case 'tins':S.trainIns=v;render();break;
     case 'renew':{const p=POLICIES.find(x=>x.id===el.dataset.id);p.status='Renovada';closeModal();render();bump('salvas','Renovação concluída');break;}
     case 'contact':{const c=byId(el.dataset.id);c.ultContato=0;bump('contatos','Contato registrado');break;}

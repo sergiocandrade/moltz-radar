@@ -280,7 +280,7 @@ function carteiraHealth(){const rec=POLICIES.reduce((s,p)=>s+p.premio*p.comissao
   const g={};POLICIES.forEach(p=>g[p.ins]=(g[p.ins]||0)+p.premio*p.comissao);const top=Object.entries(g).sort((a,b)=>b[1]-a[1])[0];
   return{rec,risk,top:top[0],topShare:top[1]/rec*100};}
 const customerPage={items:[],total:0,page:1,page_size:15,loading:false,error:''};
-const renewalGrid={items:[],total:0,page:1,page_size:15,counts:{venc:0,'30':0,'60':0,'120':0},customerNames:new Map(),loading:false,error:''};
+const renewalGrid={items:[],total:0,page:1,page_size:15,counts:{venc:0,'30':0,'60':0,'120':0},customerNames:new Map(),customerNamesLoading:false,loading:false,error:''};
 let renewalRequest=0;
 const renewalWindows={venc:[null,-1],'30':[0,30],'60':[31,60],'120':[61,120]};
 const isoDay=offset=>{const d=new Date(TODAY.getTime()+offset*DAY);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
@@ -309,7 +309,7 @@ async function loadRenewalPolicies(){
       throw new Error('A API retornou dados de apólice inválidos.');
     }
     if(request!==renewalRequest)return;
-    Object.assign(renewalGrid,{items:selectedData.items,total:selectedData.total,page:selectedData.page,page_size:selectedData.page_size,counts:{...renewalGrid.counts,[selected]:selectedData.total},customerNames:new Map(),loading:false});
+    Object.assign(renewalGrid,{items:selectedData.items,total:selectedData.total,page:selectedData.page,page_size:selectedData.page_size,counts:{...renewalGrid.counts,[selected]:selectedData.total},customerNames:new Map(),customerNamesLoading:true,loading:false});
     render();
     const otherKeys=Object.keys(renewalWindows).filter(key=>key!==selected);
     const countsPromise=Promise.allSettled(otherKeys.map(async key=>{
@@ -323,11 +323,11 @@ async function loadRenewalPolicies(){
       countsPromise,
     ]);
     if(request!==renewalRequest)return;
-    renewalGrid.customerNames=names;
+    renewalGrid.customerNames=names;renewalGrid.customerNamesLoading=false;
     countResults.forEach(result=>{if(result.status==='fulfilled')renewalGrid.counts[result.value[0]]=result.value[1]});
     render();
   }catch(error){
-    if(request===renewalRequest){renewalGrid.items=[];renewalGrid.total=0;renewalGrid.loading=false;renewalGrid.error=error.message;render();}
+    if(request===renewalRequest){renewalGrid.items=[];renewalGrid.total=0;renewalGrid.loading=false;renewalGrid.customerNamesLoading=false;renewalGrid.error=error.message;render();}
   }
 }
 async function loadCustomers(page=1){
@@ -409,7 +409,7 @@ V.renovacoes=()=>{
   const actionCount=renewalGrid.counts.venc+renewalGrid.counts['30'];
   const rows=renewalGrid.items.map(policy=>{
     const endDate=new Date(`${policy.end_date}T00:00:00`),offset=Math.round((endDate-TODAY)/DAY);
-    const customer=renewalGrid.customerNames.get(policy.customer_id)||policy.customer_id;
+    const customer=renewalGrid.customerNames.get(policy.customer_id)||(renewalGrid.customerNamesLoading?'Carregando cliente...':'Cliente');
     const product=policy.insurance_product?.insurance_branch?.name||policy.insurance_product?.name||'Apólice';
     const insurer=policy.insurer?.name;
     const amount=Number(policy.amount),subtitle=`${product}${insurer?` · ${insurer}`:''}`;

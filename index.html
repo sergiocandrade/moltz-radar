@@ -28,6 +28,18 @@
       <p class="sm" id="loginStatus" role="status" hidden></p>
       <button class="btn solid lg" type="submit">Continuar</button>
       <button class="login-link" id="showReset" type="button">Esqueci minha senha</button>
+      <a class="login-link" href="#signup">Criar conta</a>
+    </form>
+    <form class="lg-card" id="signupForm" novalidate hidden>
+      <h2>Criar conta</h2>
+      <div class="field"><label for="signupEmail">E-mail</label><input class="input" id="signupEmail" name="email" type="email" autocomplete="email" maxlength="128" required></div>
+      <div class="field"><label for="signupPhone">Telefone</label><input class="input" id="signupPhone" name="phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="(11) 99999-9999" maxlength="15" required></div>
+      <fieldset class="signup-categories"><legend>Com quais categorias de seguro você trabalha?</legend><div class="signup-options" id="signupCategories"></div></fieldset>
+      <div class="field" id="signupOtherField" hidden><label for="signupOtherText">Quais outras categorias?</label><input class="input" id="signupOtherText" type="text" maxlength="256" disabled></div>
+      <div class="field"><label for="signupRegion">Em que cidade você atua?</label><input class="input" id="signupRegion" name="region" type="text" autocomplete="address-level2" maxlength="128" required></div>
+      <p class="sm" id="signupError" role="alert" style="color:var(--red)" hidden></p>
+      <button class="btn solid lg" type="submit">Criar conta</button>
+      <a class="login-link" href="#login">Já tenho conta</a>
     </form>
     <form class="lg-card" id="resetForm" novalidate hidden>
       <h2>Redefinir senha</h2>

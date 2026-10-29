@@ -77,6 +77,12 @@ export async function apiRequest(path, options = {}) {
   }
   const data = await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status === 409 && path === '/auth/sign-up') {
+      throw new Error('Você já está cadastrado. Entraremos em contato em breve.');
+    }
+    if (response.status === 403 && path === '/auth/sign-up') {
+      throw new Error('Vamos incluir você na lista de espera e entraremos em contato em breve.');
+    }
     if (response.status === 401 || response.status === 403) {
       if (response.status === 401 && path !== '/auth/sign-in') expireSession();
       throw new Error(path === '/auth/sign-in'
@@ -92,6 +98,14 @@ export async function apiRequest(path, options = {}) {
 
 export function authRequest(path, options = {}) {
   return apiRequest(`/auth${path}`, options);
+}
+
+export function signUp({ email, phone, insurance_categories, region }) {
+  return authRequest('/sign-up', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, phone, insurance_categories: insurance_categories.map(category => category.trim()).filter(Boolean).join(','), region }),
+  });
 }
 
 export async function signIn(username, password) {

@@ -1,6 +1,8 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { signIn, signOut, restoreSession, authRequest, apiRequest, requestPasswordReset, completePasswordReset } from './auth.js';
+import IMask from 'imask';
+import { brazilianPhoneMaskOptions, isValidBrazilianPhone } from './phone.js';
+import { signIn, signUp, signOut, restoreSession, authRequest, apiRequest, requestPasswordReset, completePasswordReset } from './auth.js';
 
 const originalFetch = globalThis.fetch;
 const originalStorage = globalThis.localStorage;
@@ -45,6 +47,81 @@ test('sign-in sends the API contract and verifies the bearer token with /me', as
   assert.equal(calls[1].url, '/api/auth/me');
   assert.equal(calls[1].options.headers.Authorization, `Bearer ${accessToken}`);
   assert.equal(storage.get('moltz3:access-token'), accessToken);
+});
+
+test('Brazilian phone mask formats landlines and mobile numbers', () => {
+  const mask = IMask.createMask(brazilianPhoneMaskOptions);
+  for (const [digits, formatted] of [['1133331234', '(11) 3333-1234'], ['21999991234', '(21) 99999-1234']]) {
+    mask.resolve(digits);
+    assert.equal(mask.value, formatted);
+  }
+});
+
+test('Brazilian phone validation accepts valid landlines and mobile numbers', () => {
+  for (const phone of ['(11) 3333-1234', '(21) 99999-1234', '31987654321']) {
+    assert.equal(isValidBrazilianPhone(phone), true, phone);
+  }
+});
+
+test('Brazilian phone validation rejects incomplete numbers, invalid DDDs and invalid prefixes', () => {
+  for (const phone of ['', '(11) 3333-123', '(00) 99999-1234', '(20) 99999-1234', '(11) 89999-1234', '(11) 1111-1111']) {
+    assert.equal(Boolean(isValidBrazilianPhone(phone)), false, phone);
+  }
+});
+
+test('sign-up sends email, phone, insurance categories and region without a password or session', async () => {
+  const registration = {
+    email: 'broker@example.com', phone: '(21) 99999-1234',
+    insurance_categories: ['Auto', 'Residencial'], region: 'Rio de Janeiro',
+  };
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, '/api/auth/sign-up');
+    assert.equal(options.method, 'POST');
+    assert.equal(options.headers['Content-Type'], 'application/json');
+    assert.deepEqual(JSON.parse(options.body), { ...registration, insurance_categories: 'Auto,Residencial' });
+    return Response.json({ ok: true });
+  };
+  await signUp({ ...registration, username: 'must-not-be-sent', password: 'must-not-be-sent' });
+  assert.equal(storage.has('moltz3:access-token'), false);
+});
+
+test('sign-up includes trimmed custom categories in the comma-separated string', async () => {
+  const registration = { email: 'broker@example.com', phone: '21999991234', region: 'Rio de Janeiro' };
+  for (const categories of [['Auto', ' Seguro rural '], [' Seguro rural ']]) {
+    globalThis.fetch = async (_url, options) => {
+      const payload = JSON.parse(options.body);
+      assert.equal(payload.insurance_categories, categories.length === 2 ? 'Auto,Seguro rural' : 'Seguro rural');
+      return Response.json({ ok: true });
+    };
+    await signUp({ ...registration, insurance_categories: categories });
+  }
+});
+
+test('sign-up reports registration errors from the API', async () => {
+  globalThis.fetch = async () => Response.json({ detail: 'Dados de cadastro inválidos.' }, { status: 400 });
+  await assert.rejects(signUp({ email: 'broker@example.com', phone: '21999991234', insurance_categories: ['Auto'], region: 'Rio de Janeiro' }), /Dados de cadastro inválidos/);
+});
+
+test('sign-up conflict responses explain the user is registered and will be contacted', async () => {
+  for (const response of [Response.json({ detail: 'Conflict' }, { status: 409 }), new Response(null, { status: 409 })]) {
+    globalThis.fetch = async () => response;
+    await assert.rejects(signUp({ email: 'broker@example.com', phone: '21999991234', insurance_categories: ['Auto'], region: 'Rio de Janeiro' }), {
+      message: 'Você já está cadastrado. Entraremos em contato em breve.',
+    });
+  }
+  assert.equal(storage.has('moltz3:access-token'), false);
+  assert.deepEqual(events, []);
+});
+
+test('sign-up forbidden responses display the waiting-list message without opening a session', async () => {
+  for (const response of [Response.json({ detail: 'Forbidden' }, { status: 403 }), new Response(null, { status: 403 })]) {
+    globalThis.fetch = async () => response;
+    await assert.rejects(signUp({ email: 'broker@example.com', phone: '21999991234', insurance_categories: ['Auto'], region: 'Rio de Janeiro' }), {
+      message: 'Vamos incluir você na lista de espera e entraremos em contato em breve.',
+    });
+  }
+  assert.equal(storage.has('moltz3:access-token'), false);
+  assert.deepEqual(events, []);
 });
 
 test('invalid credentials do not open a session', async () => {

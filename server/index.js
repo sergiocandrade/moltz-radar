@@ -33,6 +33,7 @@ async function proxyApi(req, res) {
 }
 
 app.post('/api/auth/sign-in', proxyApi);
+app.post('/api/auth/sign-up', proxyApi);
 app.post('/api/auth/reset-password', proxyApi);
 app.post('/api/auth/reset-password/confirm', proxyApi);
 app.get('/api/auth/me', proxyApi);

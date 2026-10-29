@@ -1,6 +1,8 @@
 import './styles.css';
 import './claude-shim.js';
-import { signIn, signOut, restoreSession, apiRequest, requestPasswordReset, completePasswordReset } from './auth.js';
+import IMask from 'imask';
+import { brazilianPhoneMaskOptions, isValidBrazilianPhone } from './phone.js';
+import { signIn, signUp, signOut, restoreSession, apiRequest, requestPasswordReset, completePasswordReset } from './auth.js';
 
 /* ===================== Møltz · protótipo v3 · dados de exemplo ===================== */
 const TODAY=new Date();TODAY.setHours(0,0,0,0);const DAY=864e5;
@@ -923,6 +925,109 @@ function redirectToLogin(){
   location.reload();
 }
 addEventListener('auth:expired',redirectToLogin);
+const signupPhoneMask=IMask($('#signupPhone'),brazilianPhoneMaskOptions);
+signupPhoneMask.on('accept',()=>$('#signupPhone').setCustomValidity(''));
+function validateSignupField(field){
+  field.setCustomValidity('');
+  if(field.disabled||field.type==='checkbox')return;
+  const requiredMessages={signupEmail:'Informe seu e-mail.',signupPhone:'Informe seu telefone com DDD.',signupRegion:'Informe a cidade em que você atua.',signupOtherText:'Informe as outras categorias de seguro.'};
+  const value=field.value.trim();
+  let message='';
+  if(field.required&&!value)message=requiredMessages[field.id]||'Preencha este campo.';
+  else if(field.type==='email'&&field.validity.typeMismatch)message='Informe um e-mail válido, como nome@exemplo.com.br.';
+  else if(field.id==='signupPhone'&&value&&!isValidBrazilianPhone(value))message='Informe um telefone brasileiro válido com DDD.';
+  else if(field.maxLength>0&&value.length>field.maxLength)message=`Use no máximo ${field.maxLength} caracteres.`;
+  field.setCustomValidity(message);
+}
+$('#signupForm').addEventListener('input',e=>{
+  if(e.target.tagName!=='INPUT')return;
+  validateSignupField(e.target);
+  if(e.target.getAttribute('aria-invalid')==='true'&&e.target.validity.valid){
+    e.target.removeAttribute('aria-invalid');
+    e.target.removeAttribute('aria-describedby');
+    $('#signupError').hidden=true;
+  }
+});
+$('#signupForm').addEventListener('invalid',e=>{
+  e.target.setAttribute('aria-invalid','true');
+  e.target.setAttribute('aria-describedby','signupError');
+  $('#signupError').textContent=e.target.validationMessage;
+  $('#signupError').hidden=false;
+},true);
+$('#signupCategories').innerHTML=RAMOS.map(category=>`<label><input type="checkbox" name="insurance_categories" value="${esc(category)}">${esc(category)}</label>`).join('')+'<label><input type="checkbox" id="signupOtherCategory" aria-controls="signupOtherField">Outros</label>';
+function syncOtherCategory(){
+  const selected=$('#signupOtherCategory').checked;
+  $('#signupOtherField').hidden=!selected;
+  $('#signupOtherText').disabled=!selected;
+  $('#signupOtherText').required=selected;
+  validateSignupField($('#signupOtherText'));
+}
+$('#signupOtherCategory').addEventListener('change',()=>{
+  syncOtherCategory();
+  if($('#signupOtherCategory').checked)$('#signupOtherText').focus();
+});
+function showAuthPage(){
+  if($('#login').hidden)return;
+  const signup=location.hash==='#signup';
+  $('#loginForm').hidden=signup;
+  $('#signupForm').hidden=!signup;
+  $('#resetForm').hidden=true;
+  $('#loginError').hidden=true;
+  $('#signupError').hidden=true;
+  $('#lgPass').value='';
+  if(signup){
+    $('#loginStatus').hidden=true;
+    $('#signupEmail').value=$('#lgEmail').value.trim();
+    $('#signupEmail').focus();
+  }else{
+    $('#lgEmail').focus();
+  }
+}
+addEventListener('hashchange',()=>{
+  if(location.hash==='#signup'||location.hash==='#login')showAuthPage();
+});
+showAuthPage();
+$('#signupForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const form=e.currentTarget,button=form.querySelector('button[type="submit"]'),error=$('#signupError');
+  if(button.disabled)return;
+  error.hidden=true;
+  form.querySelectorAll('input').forEach(validateSignupField);
+  const invalidField=Array.from(form.querySelectorAll('input')).find(field=>!field.disabled&&!field.validity.valid);
+  if(invalidField){invalidField.reportValidity();return;}
+  const categories=new FormData(form).getAll('insurance_categories');
+  if($('#signupOtherCategory').checked){
+    const other=$('#signupOtherText').value.trim();
+    if(!other){
+      error.textContent='Informe as outras categorias de seguro.';error.hidden=false;$('#signupOtherText').focus();return;
+    }
+    categories.push(other);
+  }
+  if(!categories.length){
+    error.textContent='Selecione ao menos uma categoria de seguro.';error.hidden=false;$('#signupCategories input').focus();return;
+  }
+  if(!$('#signupPhone').value.trim()||!$('#signupRegion').value.trim()){
+    error.textContent='Informe seu telefone e a cidade em que atua.';error.hidden=false;return;
+  }
+  const email=$('#signupEmail').value.trim();
+  button.disabled=true;button.textContent='Enviando cadastro...';form.setAttribute('aria-busy','true');
+  try{
+    await signUp({email,phone:$('#signupPhone').value.trim(),insurance_categories:categories,region:$('#signupRegion').value.trim()});
+    form.reset();
+    signupPhoneMask.value='';
+    syncOtherCategory();
+    $('#lgEmail').value=email;
+    history.replaceState(null,'','#login');
+    showAuthPage();
+    $('#loginStatus').textContent='Cadastro recebido. Entraremos em contato em breve.';
+    $('#loginStatus').hidden=false;
+    $('#loginStatus').setAttribute('tabindex','-1');$('#loginStatus').focus();
+  }catch(err){
+    error.textContent=err.message;error.hidden=false;
+  }finally{
+    button.disabled=false;button.textContent='Criar conta';form.removeAttribute('aria-busy');
+  }
+});
 let resetStep='email';
 $('#showReset').addEventListener('click',()=>{
   resetStep='email';
@@ -1023,7 +1128,7 @@ $('#loginForm').addEventListener('submit',async e=>{
   try{
     const user=await restoreSession();
     if(user)enterApp(user);
-    else try{history.replaceState(null,'','#login');}catch(error){}
+    else if(location.hash!=='#signup')try{history.replaceState(null,'','#login');}catch(error){}
   }catch(error){
     $('#loginError').textContent=error.message;$('#loginError').hidden=false;
   }finally{

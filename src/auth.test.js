@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { signIn, signOut, restoreSession, authRequest, apiRequest } from './auth.js';
+import { signIn, signOut, restoreSession, authRequest, apiRequest, requestPasswordReset, completePasswordReset } from './auth.js';
 
 const originalFetch = globalThis.fetch;
 const originalStorage = globalThis.localStorage;
@@ -34,9 +34,10 @@ test('sign-in sends the API contract and verifies the bearer token with /me', as
     calls.push({ url, options });
     return Response.json(url.endsWith('/sign-in')
       ? { access_token: accessToken }
-      : { id: 'user-1', email: 'broker@example.com' });
+        : { name: 'Broker Example', email: 'broker@example.com' });
   };
   const user = await signIn('broker@example.com', 'password');
+      assert.equal(user.name, 'Broker Example');
   assert.equal(user.email, 'broker@example.com');
   assert.equal(calls[0].url, '/api/auth/sign-in');
   assert.equal(calls[0].options.method, 'POST');
@@ -50,6 +51,32 @@ test('invalid credentials do not open a session', async () => {
   globalThis.fetch = async () => Response.json({ detail: 'Unauthorized' }, { status: 401 });
   await assert.rejects(signIn('broker@example.com', 'wrong'), /inválidos/);
   assert.deepEqual(events, []);
+});
+
+test('password reset sends the username to the auth API', async () => {
+  let call;
+  globalThis.fetch = async (url, options) => {
+    call = { url, options };
+    return Response.json({ ok: true });
+  };
+  await requestPasswordReset('broker@example.com');
+  assert.equal(call.url, '/api/auth/reset-password');
+  assert.equal(call.options.method, 'POST');
+  assert.deepEqual(JSON.parse(call.options.body), { username: 'broker@example.com' });
+});
+
+test('password reset completion sends code and new password to the confirm endpoint', async () => {
+  let call;
+  globalThis.fetch = async (url, options) => {
+    call = { url, options };
+    return Response.json({ ok: true });
+  };
+  await completePasswordReset('broker@example.com', 'new-password', '123456');
+  assert.equal(call.url, '/api/auth/reset-password/confirm');
+  assert.equal(call.options.method, 'POST');
+  assert.deepEqual(JSON.parse(call.options.body), {
+    username: 'broker@example.com', new_password: 'new-password', code: '123456',
+  });
 });
 
 test('authentication challenges and malformed tokens are rejected', async () => {
@@ -80,7 +107,7 @@ test('customers requests preserve pagination and use the login bearer token', as
   const accessToken = token();
   globalThis.fetch = async url => Response.json(url.endsWith('/sign-in')
     ? { access_token: accessToken }
-    : { id: 'user-1', email: 'broker@example.com' });
+    : { name: 'Broker Example', email: 'broker@example.com' });
   await signIn('broker@example.com', 'password');
   globalThis.fetch = async (url, options) => {
     assert.equal(url, '/api/customers?page=2&page_size=15&view=detailed');
@@ -101,9 +128,9 @@ test('restores a valid stored JWT after verifying it with the API', async () => 
   globalThis.fetch = async (url, options) => {
     assert.equal(url, '/api/auth/me');
     assert.equal(options.headers.Authorization, `Bearer ${accessToken}`);
-    return Response.json({ id: 'user-1', email: 'broker@example.com' });
+    return Response.json({ name: 'Broker Example', email: 'broker@example.com' });
   };
-  assert.equal((await restoreSession()).id, 'user-1');
+  assert.equal((await restoreSession()).name, 'Broker Example');
 });
 
 test('expired or malformed stored JWTs are removed without an API call', async () => {
@@ -118,7 +145,7 @@ test('expired or malformed stored JWTs are removed without an API call', async (
 
 test('logout removes the persisted token and bearer header', async () => {
   storage.set('moltz3:access-token', token());
-  globalThis.fetch = async () => Response.json({ id: 'user-1', email: 'broker@example.com' });
+  globalThis.fetch = async () => Response.json({ name: 'Broker Example', email: 'broker@example.com' });
   await restoreSession();
   signOut();
   assert.equal(storage.has('moltz3:access-token'), false);
@@ -131,7 +158,7 @@ test('logout removes the persisted token and bearer header', async () => {
 
 test('API rejection clears a restored session, but forbidden access does not', async () => {
   storage.set('moltz3:access-token', token());
-  globalThis.fetch = async () => Response.json({ id: 'user-1', email: 'broker@example.com' });
+  globalThis.fetch = async () => Response.json({ name: 'Broker Example', email: 'broker@example.com' });
   await restoreSession();
   globalThis.fetch = async () => Response.json({}, { status: 403 });
   await assert.rejects(apiRequest('/customers'));
@@ -144,7 +171,7 @@ test('API rejection clears a restored session, but forbidden access does not', a
 test('JWT expiration clears the session before sending another request', async context => {
   const now = Date.now();
   storage.set('moltz3:access-token', token(Math.floor(now / 1000) + 60));
-  globalThis.fetch = async () => Response.json({ id: 'user-1', email: 'broker@example.com' });
+  globalThis.fetch = async () => Response.json({ name: 'Broker Example', email: 'broker@example.com' });
   await restoreSession();
   context.mock.method(Date, 'now', () => now + 120000);
   globalThis.fetch = async () => { assert.fail('Expired tokens must not be sent'); };
@@ -164,7 +191,7 @@ test('idle sessions are cleared automatically at JWT expiration', async context 
   const now = 1800000000000;
   context.mock.timers.enable({ apis: ['Date', 'setTimeout'], now });
   storage.set('moltz3:access-token', token(now / 1000 + 2));
-  globalThis.fetch = async () => Response.json({ id: 'user-1', email: 'broker@example.com' });
+  globalThis.fetch = async () => Response.json({ name: 'Broker Example', email: 'broker@example.com' });
   await restoreSession();
   context.mock.timers.tick(1999);
   assert.equal(storage.has('moltz3:access-token'), true);

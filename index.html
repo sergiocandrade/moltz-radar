@@ -25,8 +25,22 @@
       <div class="field"><label for="lgEmail">E-mail</label><input class="input" id="lgEmail" name="username" type="email" autocomplete="username" maxlength="128" required></div>
       <div class="field"><label for="lgPass">Senha</label><input class="input" id="lgPass" name="password" type="password" autocomplete="current-password" maxlength="256" required></div>
       <p class="sm" id="loginError" role="alert" style="color:var(--red)" hidden></p>
+      <p class="sm" id="loginStatus" role="status" hidden></p>
       <button class="btn solid lg" type="submit">Continuar</button>
-      <p class="t3 sm">Primeiro acesso e recuperação de senha serão definidos na próxima etapa.</p>
+      <button class="login-link" id="showReset" type="button">Esqueci minha senha</button>
+    </form>
+    <form class="lg-card" id="resetForm" novalidate hidden>
+      <h2>Redefinir senha</h2>
+      <div class="field"><label for="resetEmail">E-mail</label><input class="input" id="resetEmail" name="username" type="email" autocomplete="email" maxlength="128" required></div>
+      <fieldset class="reset-fields" id="resetCompletion" hidden disabled>
+        <div class="field"><label for="resetCode">Código enviado por e-mail</label><input class="input" id="resetCode" name="confirmation_code" type="text" autocomplete="one-time-code" maxlength="64" required></div>
+        <div class="field"><label for="newPassword">Nova senha</label><input class="input" id="newPassword" name="new_password" type="password" autocomplete="new-password" maxlength="256" required></div>
+        <div class="field"><label for="confirmPassword">Confirmar nova senha</label><input class="input" id="confirmPassword" type="password" autocomplete="new-password" maxlength="256" required></div>
+      </fieldset>
+      <p class="sm" id="resetError" role="alert" style="color:var(--red)" hidden></p>
+      <p class="sm" id="resetStatus" role="status" hidden></p>
+      <button class="btn solid lg" id="resetSubmit" type="submit">Enviar código</button>
+      <button class="login-link" id="backToLogin" type="button">Voltar para entrar</button>
     </form>
   </div>
 </section>

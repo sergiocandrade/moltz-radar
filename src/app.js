@@ -1,11 +1,12 @@
 import './styles.css';
 import './claude-shim.js';
-import { signIn, signOut, restoreSession, apiRequest } from './auth.js';
+import { signIn, signOut, restoreSession, apiRequest, requestPasswordReset, completePasswordReset } from './auth.js';
 
 /* ===================== Møltz · protótipo v3 · dados de exemplo ===================== */
 const TODAY=new Date();TODAY.setHours(0,0,0,0);const DAY=864e5;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const userInitials=user=>{const name=String(user.name||'').trim();const parts=name?name.split(/\s+/):String(user.email||'').split('@')[0].split(/[._+-]+/).filter(Boolean);return [parts[0],parts.at(-1)].filter(Boolean).map(part=>Array.from(part)[0]||'').join('').toLocaleUpperCase('pt-BR')||'U'};
 const brl=v=>'R$ '+Math.round(v).toLocaleString('pt-BR');
 const brl2=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const compact=v=>v>=1e6?'R$ '+(v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mi':v>=1e3?'R$ '+Math.round(v/1e3).toLocaleString('pt-BR')+' mil':brl(v);
@@ -81,7 +82,7 @@ for(let i=0;i<22;i++){
   CLIENTS.push(cl);
 }
 /* Sessão: cada corretora é um tenant isolado. Toda leitura de dados passa por scoped(). */
-const SESSION={corretora:'CORR-0001',nome:'Corretora Exemplo',usuario:'corretor@exemplo.com.br'};
+const SESSION={corretora:'CORR-0001',nome:'Corretora Exemplo',usuario:'corretor@exemplo.com.br',initials:'CE'};
 CLIENTS.forEach(c=>c.tenant=SESSION.corretora);
 const scoped=()=>CLIENTS.filter(c=>c.tenant===SESSION.corretora);
 const POLICIES=CLIENTS.flatMap(c=>c.apolices.map(p=>{p.cli=c;return p}));
@@ -728,7 +729,7 @@ function filtersModal(){const sel=(id,lab,opts,cur)=>`<div class="field"><label 
 function moreSheet(){const v=imp(),dark=document.documentElement.dataset.theme==='dark'||(!document.documentElement.dataset.theme&&matchMedia('(prefers-color-scheme: dark)').matches);
   const G=[['oportunidades','Oportunidades','<path d="M12 3a6 6 0 0 0-4 10.5V17h8v-3.5A6 6 0 0 0 12 3z"/><path d="M9 21h6"/>'],['avisos','Avisos','<path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/>'],['assistente','Assistente','<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/>'],['desempenho','Desempenho','<path d="M4 20V14M10 20V9M16 20V4M22 20H2"/>'],['treinamento','Treinamento','<path d="M3 6l9-3 9 3-9 3z"/><path d="M7 8v5c0 1.5 2.2 3 5 3s5-1.5 5-3V8"/>'],['eventos','Eventos','<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>']];
   openModal(`${mHead('Mais','')}<div class="m-body">
-    <div class="sheet-user"><span class="av">CE</span><span class="txt"><span class="ttl">${esc(SESSION.nome)}</span><span class="sub">${esc(SESSION.usuario)} · ${level(v).n} · ${v} pts</span></span></div>
+    <div class="sheet-user"><span class="av">${esc(SESSION.initials)}</span><span class="txt"><span class="ttl">${esc(SESSION.nome)}</span><span class="sub">${esc(SESSION.usuario)} · ${level(v).n} · ${v} pts</span></span></div>
     <div class="sheet-grid">${G.map(([k,l,d])=>`<a href="#${k}" data-go="${k}" class="${S.view===k?'on':''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>${l}</a>`).join('')}</div>
     <div class="sec-h"><span class="t2">Aparência</span>${seg([['light','Claro'],['dark','Escuro']],dark?'dark':'light','settheme')}</div>
   </div><div class="m-foot"><button class="btn quiet" data-act="logout">Sair</button></div>`);$('#modal').dataset.kind='sheet';}
@@ -780,7 +781,7 @@ function cmdRender(q){q=q.toLowerCase().trim();const pages=[...NAV,['assistente'
 function renderChrome(){const v=imp();
   $('#nav').innerHTML=NAV.map(([k,l])=>`<a href="#${k}" data-go="${k}" class="${S.view===k?'on':''}">${l}</a>`).join('')+`<span class="sep"></span><a href="#assistente" data-go="assistente" class="ai ${S.view==='assistente'?'on':''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path class="s1" d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path class="s2" d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg><span>Assistente</span></a>`;
   $('#aiMobile').classList.toggle('on',S.view==='assistente');
-  $('#meBtn').innerHTML=`<span class="lvl">${level(v).n} · <span class="imp">${v}</span></span><span class="av">CE</span>`;
+  $('#meBtn').innerHTML=`<span class="lvl">${level(v).n} · <span class="imp">${v}</span></span><span class="av">${esc(SESSION.initials)}</span>`;
   const extra='';
   $('#menu').innerHTML=extra+MORE.map(([k,l])=>`<a href="#${k}" data-go="${k}">${l}</a>`).join('')+`<hr><button data-act="theme">Modo claro / escuro</button><button data-act="logout">Sair</button>`;
   $('#bell').querySelector('.n')?.remove();if(POLICIES.some(p=>days(p.fim)<0&&p.status!=='Renovada'))$('#bell').insertAdjacentHTML('beforeend','<span class="n"></span>');
@@ -906,6 +907,7 @@ $('#scrim').addEventListener('click',()=>{closeCmd();closeModal();if(S.view==='r
 /* login → boas-vindas → app */
 function enterApp(user,showWelcome=false){
   SESSION.usuario=user.email;
+  SESSION.initials=userInitials(user);
   $('#login').hidden=true;$('#app').hidden=false;
   go(showWelcome?'inicio':location.hash.slice(1));
   if(showWelcome){
@@ -921,11 +923,86 @@ function redirectToLogin(){
   location.reload();
 }
 addEventListener('auth:expired',redirectToLogin);
+let resetStep='email';
+$('#showReset').addEventListener('click',()=>{
+  resetStep='email';
+  $('#resetForm').reset();
+  $('#resetCompletion').hidden=true;
+  $('#resetCompletion').disabled=true;
+  $('#resetEmail').readOnly=false;
+  $('#resetSubmit').textContent='Enviar código';
+  $('#resetEmail').value=$('#lgEmail').value.trim();
+  $('#loginError').hidden=true;
+  $('#loginStatus').hidden=true;
+  $('#resetError').hidden=true;
+  $('#resetStatus').hidden=true;
+  $('#loginForm').hidden=true;
+  $('#resetForm').hidden=false;
+  $('#resetEmail').focus();
+});
+$('#backToLogin').addEventListener('click',()=>{
+  $('#resetForm').hidden=true;
+  $('#loginForm').hidden=false;
+  $('#resetForm').reset();
+  $('#resetCompletion').hidden=true;
+  $('#resetCompletion').disabled=true;
+  $('#resetEmail').readOnly=false;
+  $('#resetSubmit').textContent='Enviar código';
+  resetStep='email';
+  $('#resetError').hidden=true;
+  $('#resetStatus').hidden=true;
+  $('#lgEmail').focus();
+});
+$('#resetForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const form=e.currentTarget,button=form.querySelector('button[type="submit"]'),error=$('#resetError'),status=$('#resetStatus');
+  if(button.disabled)return;
+  error.hidden=true;status.hidden=true;
+  if(!form.reportValidity())return;
+  if(resetStep==='complete'&&$('#newPassword').value!==$('#confirmPassword').value){
+    error.textContent='As senhas não coincidem.';error.hidden=false;return;
+  }
+  button.disabled=true;button.textContent='Enviando...';form.setAttribute('aria-busy','true');
+  try{
+    const username=$('#resetEmail').value.trim();
+    if(resetStep==='email'){
+      await requestPasswordReset(username);
+      resetStep='complete';
+      $('#resetCompletion').hidden=false;
+      $('#resetCompletion').disabled=false;
+      $('#resetEmail').readOnly=true;
+      status.textContent='Se a conta existir, um código de confirmação será enviado por e-mail. Informe-o e escolha uma nova senha.';
+      status.hidden=false;
+      $('#resetSubmit').textContent='Redefinir senha';
+      $('#resetCode').focus();
+    }else{
+      await completePasswordReset(username,$('#newPassword').value,$('#resetCode').value.trim());
+      $('#lgEmail').value=username;
+      $('#lgPass').value='';
+      $('#loginError').hidden=true;
+      $('#loginStatus').textContent='Senha redefinida. Entre com sua nova senha.';
+      $('#loginStatus').hidden=false;
+      $('#resetForm').hidden=true;
+      $('#loginForm').hidden=false;
+      form.reset();
+      $('#resetCompletion').hidden=true;
+      $('#resetCompletion').disabled=true;
+      $('#resetEmail').readOnly=false;
+      resetStep='email';
+      $('#lgPass').focus();
+    }
+  }catch(err){
+    error.textContent=err.message;error.hidden=false;
+  }finally{
+    button.disabled=false;button.textContent=resetStep==='email'?'Enviar código':'Redefinir senha';form.removeAttribute('aria-busy');
+  }
+});
 $('#loginForm').addEventListener('submit',async e=>{
   e.preventDefault();
   const form=e.currentTarget,button=form.querySelector('button[type="submit"]'),error=$('#loginError');
   if(button.disabled)return;
   error.hidden=true;
+  $('#loginStatus').hidden=true;
   if(!form.reportValidity())return;
   button.disabled=true;button.textContent='Entrando...';form.setAttribute('aria-busy','true');
   let user;

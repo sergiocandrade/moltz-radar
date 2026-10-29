@@ -38,7 +38,7 @@ function scheduleExpiry() {
 
 async function currentUser() {
   const user = await authRequest('/me');
-  if (typeof user.id !== 'string' || typeof user.email !== 'string') {
+  if (typeof user.name !== 'string' || typeof user.email !== 'string') {
     throw new Error('O serviço não retornou um usuário válido.');
   }
   return user;
@@ -122,4 +122,20 @@ export async function signIn(username, password) {
     signOut();
     throw error;
   }
+}
+
+export function requestPasswordReset(username) {
+  return authRequest('/reset-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+}
+
+export function completePasswordReset(username, newPassword, code) {
+  return authRequest('/reset-password/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, new_password: newPassword, code }),
+  });
 }

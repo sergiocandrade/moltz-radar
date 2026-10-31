@@ -11,5 +11,5 @@ services:
     environment:
       - NODE_ENV=development
     command: sh -c "npm install && npm run dev"
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
+    extra_hosts:
+      host.docker.internal: "host-gateway"

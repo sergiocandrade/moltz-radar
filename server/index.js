@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const isProd = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
-const AUTH_API_URL = (process.env.AUTH_API_URL || 'http://host.docker.internal:5002').replace(/\/$/, '');
+const AUTH_API_URL = (process.env.AUTH_API_URL || 'http://localhost:5002').replace(/\/$/, '');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));

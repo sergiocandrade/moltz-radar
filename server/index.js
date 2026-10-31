@@ -16,6 +16,7 @@ app.use(express.json({ limit: '1mb' }));
 async function proxyApi(req, res) {
   res.set('Cache-Control', 'no-store');
   try {
+    console.log(AUTH_API_URL)
     const response = await fetch(`${AUTH_API_URL}${req.originalUrl.slice('/api'.length)}`, {
       method: req.method,
       headers: {

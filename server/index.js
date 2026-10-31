@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import { error } from 'node:console';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,7 +28,8 @@ async function proxyApi(req, res) {
     });
     const data = await response.json();
     res.status(response.status).json(data);
-  } catch {
+  } catch(error) {
+    console.log(error)
     res.status(502).json({ detail: 'API indisponível. Tente novamente.' });
   }
 }
